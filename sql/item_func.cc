@@ -5880,6 +5880,7 @@ void Item_func_get_system_var::fix_length_and_dec()
       fix_char_length(1);
       decimals=0;
       break;
+    case SHOW_TIMER:
     case SHOW_DOUBLE:
       decimals= 6;
       collation.set_numeric();
@@ -5916,6 +5917,7 @@ enum Item_result Item_func_get_system_var::result_type() const
     case SHOW_CHAR_PTR: 
     case SHOW_LEX_STRING:
       return STRING_RESULT;
+    case SHOW_TIMER:
     case SHOW_DOUBLE:
       return REAL_RESULT;
     default:
@@ -5938,6 +5940,7 @@ enum_field_types Item_func_get_system_var::field_type() const
     case SHOW_ULONG:
     case SHOW_ULONGLONG:
     case SHOW_HA_ROWS:
+    case SHOW_TIMER:
       return MYSQL_TYPE_LONGLONG;
     case SHOW_CHAR: 
     case SHOW_CHAR_PTR: 

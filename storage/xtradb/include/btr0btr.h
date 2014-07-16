@@ -107,6 +107,88 @@ already holding an S latch on the index tree */
 			  | BTR_ESTIMATE		\
 			  | BTR_IGNORE_SEC_UNIQUE	\
 			  | BTR_ALREADY_S_LATCHED))
+
+/* Max number of pages to consider at once during defragmentation. */
+#define BTR_DEFRAGMENT_MAX_N_PAGES	32
+
+/** Work queue for btr_defragment_thread. */
+extern ulint btr_defragment_compression_failures;
+extern ulint btr_defragment_failures;
+extern ulint btr_defragment_count;
+
+/** Item in the work queue for btr_degrament_thread. */
+struct btr_defragment_item_t
+{
+	btr_pcur_t*	pcur;		/* persistent cursor where
+					btr_defragment_n_pages should start */
+	os_event_t	event;		/* if not null, signal after work
+					is done */
+	bool		removed;	/* Mark an item as removed */
+	ulonglong	last_processed;	/* timestamp of last time this index
+					is processed by defragment thread */
+
+	btr_defragment_item_t(btr_pcur_t* pcur, os_event_t event);
+	~btr_defragment_item_t();
+};
+
+/******************************************************************//**
+Initialize defragmentation. */
+void
+btr_defragment_init();
+/******************************************************************//**
+Shutdown defragmentation. */
+void
+btr_defragment_shutdown();
+/******************************************************************//**
+Check whether the given index is in btr_defragment_wq. */
+bool
+btr_defragment_find_index(
+	dict_index_t*	index);	/*!< Index to find. */
+/******************************************************************//**
+Add an index to btr_defragment_wq. Return a pointer to os_event if this
+is a synchronized defragmentation. */
+os_event_t
+btr_defragment_add_index(
+	dict_index_t*	index,	/*!< index to be added  */
+	bool		async);	/*!< whether this is an async defragmentation */
+/******************************************************************//**
+When table is dropped, this function is called to mark a table as removed in
+btr_efragment_wq. The difference between this function and the remove_index
+function is this will not NULL the event. */
+void
+btr_defragment_remove_table(
+	dict_table_t*	table);	/*!< Index to be removed. */
+/******************************************************************//**
+Mark an index as removed from btr_defragment_wq. */
+void
+btr_defragment_remove_index(
+	dict_index_t*	index);	/*!< Index to be removed. */
+/******************************************************************//**
+Remove an item from btr_defragment_wq. Free the resource as well. */
+void
+btr_defragment_remove_item(
+	btr_defragment_item_t*	item);	/*!< Item to be removed. */
+/******************************************************************//**
+Get an item from btr_defragment_wq to work on. */
+btr_defragment_item_t*
+btr_defragment_get_item();
+/*********************************************************************//**
+Check whether we should save defragmentation statistics to persistent storage.
+Currently we save the stats to persistent storage every 100 updates. */
+UNIV_INTERN
+void
+btr_defragment_save_defrag_stats_if_needed(
+	dict_index_t*	index);	/*!< in: index */
+/******************************************************************//**
+Thread that merges consecutive b-tree pages into fewer pages to defragment
+the index. */
+extern "C" UNIV_INTERN
+os_thread_ret_t
+DECLARE_THREAD(btr_defragment_thread)(
+/*==========================================*/
+	void*	arg);		/*!< in: a dummy parameter required by
+				os_thread_create */
+
 #endif /* UNIV_HOTBACKUP */
 
 /**************************************************************//**
@@ -673,6 +755,20 @@ btr_get_size(
 	mtr_t*		mtr)	/*!< in/out: mini-transaction where index
 				is s-latched */
 	__attribute__((nonnull, warn_unused_result));
+/**************************************************************//**
+Gets the number of reserved and used pages in a B-tree.
+@return	number of pages reserved, or ULINT_UNDEFINED if the index
+is unavailable */
+UNIV_INTERN
+ulint
+btr_get_size_and_reserved(
+/*=========*/
+	dict_index_t*	index,	/*!< in: index */
+	ulint		flag,	/*!< in: BTR_N_LEAF_PAGES or BTR_TOTAL_SIZE */
+	ulint*		used,	/*!< out: number of pages used (<= reserved) */
+	mtr_t*		mtr)	/*!< in/out: mini-transaction where index
+				is s-latched */
+	__attribute__((nonnull));
 /**************************************************************//**
 Allocates a new file page to be used in an index tree. NOTE: we assume
 that the caller has made the reservation for free extents!

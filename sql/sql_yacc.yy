@@ -1004,6 +1004,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
 %token  ASC                           /* SQL-2003-N */
 %token  ASCII_SYM                     /* MYSQL-FUNC */
 %token  ASENSITIVE_SYM                /* FUTURE-USE */
+%token  ASYNC_COMMIT_SYM
 %token  AT_SYM                        /* SQL-2003-R */
 %token  AUTHORS_SYM
 %token  AUTOEXTEND_SIZE_SYM
@@ -1114,6 +1115,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
 %token  DECLARE_SYM                   /* SQL-2003-R */
 %token  DEFAULT                       /* SQL-2003-R */
 %token  DEFINER_SYM
+%token  DEFRAGMENT_SYM                /* MYSQL */
 %token  DELAYED_SYM
 %token  DELAY_KEY_WRITE_SYM
 %token  DELETE_SYM                    /* SQL-2003-R */
@@ -1692,6 +1694,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, ulong *yystacksize);
 
 %type <m_yes_no_unk>
         opt_chain opt_release
+        opt_async_commit
 
 %type <m_fk_option>
         delete_option
@@ -7263,6 +7266,7 @@ alter_commands:
             if (Lex->m_sql_cmd == NULL)
               MYSQL_YYABORT;
           }
+        | defragment
         | alter_list
           opt_partitioning
         | alter_list
@@ -7476,6 +7480,27 @@ alt_part_name_item:
 /*
   End of management of partition commands
 */
+index_defragmentation:
+          /* empty */ {}
+        | INDEX_SYM PRIMARY_SYM
+          {
+            LEX_STRING defrag_index = {C_STRING_WITH_LEN("PRIMARY")};
+            Lex->alter_info.defrag_index = defrag_index;
+          }
+        | INDEX_SYM ident
+          {
+            Lex->alter_info.defrag_index = $2;
+          }
+        ;
+ 
+defragment:
+          DEFRAGMENT_SYM index_defragmentation opt_async_commit
+          {
+            Lex->m_sql_cmd= new (thd->mem_root)
+              Sql_cmd_defragment_table();
+            if (Lex->m_sql_cmd == NULL)
+              MYSQL_YYABORT;
+          }
 
 alter_list:
           alter_list_item
@@ -7721,6 +7746,19 @@ opt_column:
 opt_ignore:
           /* empty */ { Lex->ignore= 0;}
         | IGNORE_SYM { Lex->ignore= 1;}
+        ;
+
+opt_async_commit:
+          /* empty */
+          {
+            Lex->async_commit= 0;
+            $$ = TVL_YES;
+          }
+        | ASYNC_COMMIT_SYM
+          {
+            Lex->async_commit= 1;
+            $$ = TVL_NO;
+          }
         ;
 
 alter_options:
@@ -12228,7 +12266,7 @@ opt_wild:
           /* empty */ {}
         | '.' '*' {}
         ;
-
+        
 opt_delete_options:
           /* empty */ {}
         | opt_delete_option opt_delete_options {}
@@ -14049,6 +14087,7 @@ keyword:
         | COMMIT_SYM            {}
         | CONTAINS_SYM          {}
         | DEALLOCATE_SYM        {}
+        | DEFRAGMENT_SYM        {}
         | DO_SYM                {}
         | END                   {}
         | EXAMINED_SYM          {}

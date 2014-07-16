@@ -172,6 +172,7 @@ enum enum_mysql_show_type
   SHOW_ULONGLONG, SHOW_CHAR, SHOW_CHAR_PTR,
   SHOW_ARRAY, SHOW_FUNC, SHOW_DOUBLE,
   SHOW_SINT, SHOW_SLONG, SHOW_SLONGLONG, SHOW_SIMPLE_FUNC,
+  SHOW_TIMER,      ///< stored as uint64 native units, shown as double seconds
   SHOW_always_last
 };
 

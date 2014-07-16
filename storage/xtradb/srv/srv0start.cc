@@ -2933,6 +2933,9 @@ files_checked:
 		fts_optimize_init();
 	}
 
+	/* Initialize online defragmentation. */
+	btr_defragment_init();
+
 	srv_was_started = TRUE;
 
 	return(DB_SUCCESS);
