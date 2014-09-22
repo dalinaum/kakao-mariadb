@@ -1069,6 +1069,10 @@ struct export_var_t{
 	ulint innodb_defragment_compression_failures;
 	ulint innodb_defragment_failures;
 	ulint innodb_defragment_count;
+
+	ulint innodb_onlineddl_rowlog_rows;
+	ulint innodb_onlineddl_rowlog_pct_used;
+	ulint innodb_onlineddl_pct_progress;
 #ifdef UNIV_DEBUG
 	ulint innodb_purge_trx_id_age;		/*!< rw_max_trx_id - purged trx_id */
 	ulint innodb_purge_view_trx_id_age;	/*!< rw_max_trx_id

@@ -881,6 +881,12 @@ static SHOW_VAR innodb_status_variables[]= {
   (char*) &export_vars.innodb_defragment_failures, SHOW_LONG},
   {"defragment_count",
   (char*) &export_vars.innodb_defragment_count, SHOW_LONG},
+  {"onlineddl_rowlog_rows",
+  (char*) &export_vars.innodb_onlineddl_rowlog_rows, SHOW_LONG},
+  {"onlineddl_rowlog_pct_used",
+  (char*) &export_vars.innodb_onlineddl_rowlog_pct_used, SHOW_LONG},
+  {"onlineddl_pct_progress",
+  (char*) &export_vars.innodb_onlineddl_pct_progress, SHOW_LONG},
   {NullS, NullS, SHOW_LONG}
 };
 

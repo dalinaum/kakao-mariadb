@@ -69,6 +69,7 @@ Created 10/8/1995 Heikki Tuuri
 #include "srv0mon.h"
 #include "ut0crc32.h"
 #include "os0file.h"
+#include "row0log.h"
 
 #include "mysql/plugin.h"
 #include "mysql/service_thd_wait.h"
@@ -1852,6 +1853,10 @@ srv_export_innodb_status(void)
 		btr_defragment_compression_failures;
 	export_vars.innodb_defragment_failures = btr_defragment_failures;
 	export_vars.innodb_defragment_count = btr_defragment_count;
+
+	export_vars.innodb_onlineddl_rowlog_rows = onlineddl_rowlog_rows;
+	export_vars.innodb_onlineddl_rowlog_pct_used = onlineddl_rowlog_pct_used;
+	export_vars.innodb_onlineddl_pct_progress = onlineddl_pct_progress;
 
 #ifdef UNIV_DEBUG
 	rw_lock_s_lock(&purge_sys->latch);

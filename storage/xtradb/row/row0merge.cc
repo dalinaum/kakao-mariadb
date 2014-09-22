@@ -23,6 +23,7 @@ New index creation routines using a merge sort
 Created 12/4/2005 Jan Lindstrom
 Completed by Sunny Bains and Marko Makela
 *******************************************************/
+#include <log.h>
 
 #include "row0merge.h"
 #include "row0ext.h"
@@ -1188,7 +1189,8 @@ row_merge_read_clustered_index(
 					AUTO_INCREMENT column, or
 					ULINT_UNDEFINED if none is added */
 	ib_sequence_t&		sequence,/*!< in/out: autoinc sequence */
-	row_merge_block_t*	block)	/*!< in/out: file buffer */
+	row_merge_block_t*	block, /*!< in/out: file buffer */
+	float pct_cost) /*!< in: percent of task weight out of total alter job */
 {
 	dict_index_t*		clust_index;	/* Clustered index */
 	mem_heap_t*		row_heap;	/* Heap memory to create
@@ -1208,10 +1210,17 @@ row_merge_read_clustered_index(
 	os_event_t		fts_parallel_sort_event = NULL;
 	ibool			fts_pll_sort = FALSE;
 	ib_int64_t		sig_count = 0;
+
+	float 			curr_progress;
+	ib_int64_t		read_rows = 0;
+	ib_int64_t		table_total_rows = 0;
 	DBUG_ENTER("row_merge_read_clustered_index");
 
 	ut_ad((old_table == new_table) == !col_map);
 	ut_ad(!add_cols || col_map);
+
+	table_total_rows = dict_table_get_n_rows(old_table);
+	if(table_total_rows==0) table_total_rows = 1; /* We don't know total row count */
 
 	trx->op_info = "reading clustered index";
 
@@ -1716,6 +1725,15 @@ write_buffers:
 		}
 
 		mem_heap_empty(row_heap);
+
+		/* Increment innodb_onlineddl_pct_progress status variable */
+		read_rows++;
+		if(read_rows%1000 == 0){ /* Update progress for each 1000 rows */
+			curr_progress = (read_rows >= table_total_rows) ?
+					pct_cost : pct_cost * read_rows / table_total_rows;
+			onlineddl_pct_progress = curr_progress * 100 /* presenting 10.12% to 1012 of integer */;
+			// os_atomic_increment_ulint(&onlineddl_pct_progress, 1);
+		}
 	}
 
 func_exit:
@@ -2176,16 +2194,27 @@ row_merge_sort(
 	merge_file_t*		file,	/*!< in/out: file containing
 					index entries */
 	row_merge_block_t*	block,	/*!< in/out: 3 buffers */
-	int*			tmpfd)	/*!< in/out: temporary file handle */
+	int*			tmpfd,	/*!< in/out: temporary file handle */
+	const bool		update_progress, /*!< in: update progress status variable or not */
+	const float 	pct_progress, /*!< in: total progress percent until now */
+	const float		pct_cost) /*!< in: current progress percent */
 {
 	const ulint	half	= file->offset / 2;
 	ulint		num_runs;
 	ulint*		run_offset;
+	ulint		merge_count = 0;
 	dberr_t		error	= DB_SUCCESS;
+	ulint total_merge_sort_count;
+	float curr_progress;
 	DBUG_ENTER("row_merge_sort");
 
 	/* Record the number of merge runs we need to perform */
 	num_runs = file->offset;
+
+	/* Find the number N which 2^N is greater or equal than num_runs */
+	/* N is merge sort running count */
+	total_merge_sort_count = ceil(log2f(num_runs));
+	if(total_merge_sort_count<=0) total_merge_sort_count=1;
 
 	/* If num_runs are less than 1, nothing to merge */
 	if (num_runs <= 1) {
@@ -2207,6 +2236,12 @@ row_merge_sort(
 	do {
 		error = row_merge(trx, dup, file, block, tmpfd,
 				  &num_runs, run_offset);
+
+		if(update_progress){
+			merge_count++;
+			curr_progress = (merge_count>=total_merge_sort_count) ? pct_cost : pct_cost*merge_count/total_merge_sort_count;
+			onlineddl_pct_progress = (pct_progress + curr_progress) * 100 /* presenting 10.12% to 1012 of integer */;
+		}
 
 		if (error != DB_SUCCESS) {
 			break;
@@ -2275,7 +2310,10 @@ row_merge_insert_index_tuples(
 	dict_index_t*		index,	/*!< in: index */
 	const dict_table_t*	old_table,/*!< in: old table */
 	int			fd,	/*!< in: file descriptor */
-	row_merge_block_t*	block)	/*!< in/out: file buffer */
+	row_merge_block_t*	block,	/*!< in/out: file buffer */
+	const ib_int64_t	table_total_rows, /*!< in: total rows of old table */
+	const float		pct_progress,	/*!< in: total progress percent until now */
+	const float		pct_cost) /*!< in: current progress percent */
 {
 	const byte*		b;
 	mem_heap_t*		heap;
@@ -2285,6 +2323,8 @@ row_merge_insert_index_tuples(
 	ulint			foffs = 0;
 	ulint*			offsets;
 	mrec_buf_t*		buf;
+	ib_int64_t		inserted_rows = 0;
+	float			curr_progress;
 	DBUG_ENTER("row_merge_insert_index_tuples");
 
 	ut_ad(!srv_read_only_mode);
@@ -2461,6 +2501,15 @@ row_merge_insert_index_tuples(
 
 			mem_heap_empty(tuple_heap);
 			mem_heap_empty(ins_heap);
+
+			/* Increment innodb_onlineddl_pct_progress status variable */
+			inserted_rows++;
+			if(inserted_rows%1000 == 0){ /* Update progress for each 1000 rows */
+				curr_progress = (inserted_rows>=table_total_rows || table_total_rows<=0) ?
+						pct_cost : pct_cost * inserted_rows / table_total_rows;
+				onlineddl_pct_progress = (pct_progress + curr_progress) * 100 /* presenting 10.12% to 1012 of integer */;
+				// os_atomic_increment_ulint(&onlineddl_pct_progress, 1);
+			}
 		}
 	}
 
@@ -3456,6 +3505,12 @@ row_merge_build_indexes(
 	fts_psort_t*		merge_info = NULL;
 	ib_int64_t		sig_count = 0;
 	bool			fts_psort_initiated = false;
+
+	float total_static_cost = 0;
+	float total_dynamic_cost = 0;
+	uint total_index_blocks = 0;
+	float pct_cost;
+	float pct_progress;
 	DBUG_ENTER("row_merge_build_indexes");
 
 	ut_ad(!srv_read_only_mode);
@@ -3485,6 +3540,9 @@ row_merge_build_indexes(
 	for (i = 0; i < n_indexes; i++) {
 		merge_files[i].fd = -1;
 	}
+
+	total_static_cost = COST_BUILD_INDEX_STATIC * n_indexes + COST_READ_CLUSTERED_INDEX;
+	total_dynamic_cost = COST_BUILD_INDEX_DYNAMIC * n_indexes;
 
 	for (i = 0; i < n_indexes; i++) {
 		if (row_merge_file_create(&merge_files[i]) < 0) {
@@ -3530,6 +3588,11 @@ row_merge_build_indexes(
 	duplicate keys. */
 	innobase_rec_reset(table);
 
+	sql_print_warning("Online DDL : Start");
+	sql_print_warning("Online DDL : Start reading clustered index of the table and create temporary files");
+
+	pct_cost = COST_READ_CLUSTERED_INDEX * 100 / (total_static_cost + total_dynamic_cost);
+
 	/* Read clustered index of the table and create files for
 	secondary index entries for merge sort */
 
@@ -3537,10 +3600,16 @@ row_merge_build_indexes(
 		trx, table, old_table, new_table, online, indexes,
 		fts_sort_idx, psort_info, merge_files, key_numbers,
 		n_indexes, add_cols, col_map,
-		add_autoinc, sequence, block);
+		add_autoinc, sequence, block, pct_cost);
+	pct_progress += pct_cost;
+
+	sql_print_warning("Online DDL : End of reading clustered index of the table and create temporary files");
+
+	for (i = 0; i < n_indexes; i++) {
+		total_index_blocks += merge_files[i].offset;
+	}
 
 	if (error != DB_SUCCESS) {
-
 		goto func_exit;
 	}
 
@@ -3622,14 +3691,27 @@ wait_again:
 			row_merge_dup_t	dup = {
 				sort_idx, table, col_map, 0};
 
+			pct_cost = (COST_BUILD_INDEX_STATIC + (total_dynamic_cost * merge_files[i].offset / total_index_blocks)) / (total_static_cost + total_dynamic_cost) * PCT_COST_MERGESORT_INDEX * 100;
+
+			sql_print_warning("Online DDL : Start merge-sorting index %s (%lu / %lu), estimated cost : %2.4f", indexes[i]->name, (i+1), n_indexes, pct_cost);
 			error = row_merge_sort(
 				trx, &dup, &merge_files[i],
-				block, &tmpfd);
+				block, &tmpfd, true, pct_progress, pct_cost);
+			pct_progress += pct_cost;
+
+			sql_print_warning("Online DDL : End of merge-sorting index %s (%lu / %lu)", indexes[i]->name, (i+1), n_indexes);
 
 			if (error == DB_SUCCESS) {
+				pct_cost = (COST_BUILD_INDEX_STATIC + (total_dynamic_cost * merge_files[i].offset / total_index_blocks)) / (total_static_cost + total_dynamic_cost) * PCT_COST_INSERT_INDEX * 100;
+
+				sql_print_warning("Online DDL : Start building index %s (%lu / %lu), estimated cost : %2.4f", indexes[i]->name, (i+1), n_indexes, pct_cost);
+
 				error = row_merge_insert_index_tuples(
 					trx->id, sort_idx, old_table,
-					merge_files[i].fd, block);
+					merge_files[i].fd, block, merge_files[i].n_rec, pct_progress, pct_cost);
+				pct_progress += pct_cost;
+
+				sql_print_warning("Online DDL : End of building index %s (%lu / %lu)", indexes[i]->name, (i+1), n_indexes);
 			}
 		}
 
@@ -3646,10 +3728,14 @@ wait_again:
 			ut_ad(sort_idx->online_status
 			      == ONLINE_INDEX_COMPLETE);
 		} else {
+			sql_print_warning("Online DDL : Start applying row log");
 			DEBUG_SYNC_C("row_log_apply_before");
 			error = row_log_apply(trx, sort_idx, table);
 			DEBUG_SYNC_C("row_log_apply_after");
+			sql_print_warning("Online DDL : End of applying row log");
 		}
+
+		sql_print_warning("Online DDL : Completed");
 
 		if (error != DB_SUCCESS) {
 			trx->error_key_num = key_numbers[i];
