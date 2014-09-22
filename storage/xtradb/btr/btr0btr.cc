@@ -51,54 +51,6 @@ Created 6/2/1994 Heikki Tuuri
 
 #include <list>
 
-/**************************************************//**
-Custom nullptr implementation for under g++ 4.6
-*******************************************************/
-// #pragma once
-namespace std
-{
- // based on SC22/WG21/N2431 = J16/07-0301
- struct nullptr_t
- {
- template<typename any> operator any * () const
- {
- return 0;
- }
- template<class any, typename T> operator T any:: * () const
- {
- return 0;
- }
-
-#ifdef _MSC_VER
- struct pad {};
- pad __[sizeof(void*)/sizeof(pad)];
-#else
- char __[sizeof(void*)];
-#endif
-private:
- // nullptr_t();// {}
- // nullptr_t(const nullptr_t&);
- // void operator = (const nullptr_t&);
- void operator &() const;
- template<typename any> void operator +(any) const
- {
- /*I Love MSVC 2005!*/
- }
- template<typename any> void operator -(any) const
- {
- /*I Love MSVC 2005!*/
- }
- };
-static const nullptr_t __nullptr = {};
-}
-
-#ifndef nullptr
-#define nullptr std::__nullptr
-#endif
-/**************************************************//**
-End of Custom nullptr implementation for under g++ 4.6
-*******************************************************/
-
 /* When there's no work, either because defragment is disabled, or because no
 query is submitted, thread checks state every BTR_DEFRAGMENT_SLEEP_IN_USECS.*/
 #define BTR_DEFRAGMENT_SLEEP_IN_USECS		1000000
@@ -4658,7 +4610,7 @@ btr_defragment_item_t*
 btr_defragment_get_item()
 {
 	if (btr_defragment_wq.empty()) {
-		return nullptr;
+		return NULL;
 	}
 	mutex_enter(&btr_defragment_mutex);
 	// static auto iter = btr_defragment_wq.begin();
